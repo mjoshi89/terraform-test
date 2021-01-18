@@ -1,6 +1,6 @@
 #Ideally would have used the VPC module
 resource "aws_vpc" "vpc" {
-  cidr_block           = "10.1.0.0/16"
+  cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
 
   tags = merge({
@@ -8,10 +8,11 @@ resource "aws_vpc" "vpc" {
   }, local.tags.common_tags)
 }
 
+#Subnet Creation
 resource "aws_subnet" "public_subnet" {
-  count                   = length(data.aws_availability_zones.available.names)
+  count                   = length(var.public_subnet_cidrs)
   vpc_id                  = aws_vpc.vpc.id
-  cidr_block              = "10.1.${10 + count.index}.0/24"
+  cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
@@ -21,9 +22,9 @@ resource "aws_subnet" "public_subnet" {
 }
 
 resource "aws_subnet" "private_subnet" {
-  count                   = length(data.aws_availability_zones.available.names)
+  count                   = length(var.private_subnet_cidrs)
   vpc_id                  = aws_vpc.vpc.id
-  cidr_block              = "10.1.${20 + count.index}.0/24"
+  cidr_block              = var.private_subnet_cidrs[count.index]
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = false
 
@@ -32,6 +33,7 @@ resource "aws_subnet" "private_subnet" {
   }, local.tags.common_tags)
 }
 
+#Gateways
 resource "aws_internet_gateway" "internet_gateway" {
   vpc_id = aws_vpc.vpc.id
 
@@ -40,25 +42,66 @@ resource "aws_internet_gateway" "internet_gateway" {
   }, local.tags.common_tags)
 }
 
-resource "aws_route_table" "rt" {
+resource "aws_eip" "nat" {
+  count = max(length(aws_subnet.public_subnet), length(aws_subnet.private_subnet))
+  vpc   = true
+}
+
+resource "aws_nat_gateway" "nat_gw" {
+  count         = max(length(aws_subnet.public_subnet), length(aws_subnet.private_subnet))
+  allocation_id = element(aws_eip.nat.*.id, count.index)
+  subnet_id     = element(aws_subnet.public_subnet.*.id, count.index)
+  depends_on    = [aws_internet_gateway.internet_gateway]
+}
+
+#Public Routes
+
+resource "aws_route_table" "public" {
+  count  = length(aws_subnet.public_subnet)
   vpc_id = aws_vpc.vpc.id
 
   tags = merge({
-    Name = "route-table"
+    Name = "public-route-table_${count.index + 1}"
   }, local.tags.common_tags)
 }
 
-resource "aws_route" "route_to_gateway" {
-  route_table_id         = aws_route_table.rt.id
+resource "aws_route" "public_route" {
+  count                  = length(aws_subnet.public_subnet)
+  route_table_id         = element(aws_route_table.public.*.id, count.index)
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.internet_gateway.id
-  depends_on             = [aws_route_table.rt]
+  depends_on             = [aws_route_table.public]
 }
 
 resource "aws_route_table_association" "public_subnet" {
   count          = length(aws_subnet.public_subnet)
   subnet_id      = element(aws_subnet.public_subnet.*.id, count.index)
-  route_table_id = aws_route_table.rt.id
+  route_table_id = element(aws_route_table.public.*.id, count.index)
+}
+
+#Private Routes
+
+resource "aws_route_table" "private" {
+  count  = length(aws_subnet.private_subnet)
+  vpc_id = aws_vpc.vpc.id
+
+  tags = merge({
+    Name = "private-route-table_${count.index + 1}"
+  }, local.tags.common_tags)
+}
+
+resource "aws_route" "private_route" {
+  count                  = length(aws_subnet.private_subnet)
+  route_table_id         = element(aws_route_table.private.*.id, count.index)
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = element(aws_nat_gateway.nat_gw.*.id,count.index)
+  depends_on             = [aws_route_table.private]
+}
+
+resource "aws_route_table_association" "private_subnet" {
+  count          = length(aws_subnet.private_subnet)
+  subnet_id      = element(aws_subnet.private_subnet.*.id, count.index)
+  route_table_id = element(aws_route_table.private.*.id, count.index)
 }
 
 resource "aws_security_group" "web_alb_sg" {
@@ -140,7 +183,7 @@ resource "aws_instance" "web" {
   }
 }
 */
-module "web-asg" {
+module "web_asg" {
   source  = "terraform-aws-modules/autoscaling/aws"
   version = "~> 3.0"
 

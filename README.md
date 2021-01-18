@@ -26,3 +26,4 @@ The Terraform configuration will ask you to enter an SSH key name to setup the E
 2. Add vpn instance to access web instance from private subnet, or just bake ssm agent in the instances and access from system manager.
 3. Cloudfront?
 4. Route53 entry in place.
+5. Remote state

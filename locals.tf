@@ -41,6 +41,7 @@ locals {
   tags = {
     common_tags = {
       ManagedBy = "Terraform"
+      Project   = "test"
     }
   }
 }
