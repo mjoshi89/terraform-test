@@ -200,7 +200,7 @@ module "web_asg" {
 
   # Auto scaling group
   asg_name                  = "web-asg"
-  vpc_zone_identifier       = aws_subnet.public_subnet.*.id
+  vpc_zone_identifier       = aws_subnet.private_subnet.*.id
   health_check_type         = "EC2"
   min_size                  = 0
   max_size                  = var.web_server_count
